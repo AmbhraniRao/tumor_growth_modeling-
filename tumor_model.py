@@ -1,14 +1,15 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
 from scipy.optimize import curve_fit
 
-data = pd.read_csv("tumor_data.csv")
+# True parameters (unknown in real life)
+r_true = 0.35
+K_true = 1200
+c_true = 0.25
+N0 = 20
 
-t_data = data["time"].values
-untreated_data = data["untreated"].values
-treated_data = data["treated"].values
+t_data = np.linspace(0, 40, 15)
 
 
 def logistic_growth(t, N, r, K):
@@ -19,37 +20,36 @@ def treatment_model(t, N, r, K, c):
     return r * N * (1 - N / K) - c * N
 
 
-def logistic_solution(t, r, K):
-    sol = solve_ivp(
-        logistic_growth,
-        (t[0], t[-1]),
-        [untreated_data[0]],
-        args=(r, K),
-        t_eval=t
-    )
+def simulate(model, params, t):
+    sol = solve_ivp(model, (t[0], t[-1]), [N0], args=params, t_eval=t)
     return sol.y[0]
+
+
+# Generate synthetic noisy data
+untreated_clean = simulate(logistic_growth, (r_true, K_true), t_data)
+treated_clean = simulate(treatment_model, (r_true, K_true, c_true), t_data)
+
+noise_level = 50
+untreated_data = untreated_clean + np.random.normal(0, noise_level, len(t_data))
+treated_data = treated_clean + np.random.normal(0, noise_level, len(t_data))
+
+
+def logistic_solution(t, r, K):
+    return simulate(logistic_growth, (r, K), t)
 
 
 def treatment_solution(t, r, K, c):
-    sol = solve_ivp(
-        treatment_model,
-        (t[0], t[-1]),
-        [treated_data[0]],
-        args=(r, K, c),
-        t_eval=t
-    )
-    return sol.y[0]
+    return simulate(treatment_model, (r, K, c), t)
 
 
 popt_log, _ = curve_fit(logistic_solution, t_data, untreated_data, p0=[0.3, 1000])
 r_fit, K_fit = popt_log
 
-popt_treat, _ = curve_fit(treatment_solution, t_data, treated_data, p0=[0.3, 1000, 0.1])
+popt_treat, _ = curve_fit(treatment_solution, t_data, treated_data, p0=[0.3, 1000, 0.2])
 r_treat, K_treat, c_fit = popt_treat
 
 
-t_smooth = np.linspace(t_data[0], t_data[-1], 500)
-
+t_smooth = np.linspace(0, 40, 400)
 log_sim = logistic_solution(t_smooth, r_fit, K_fit)
 treat_sim = treatment_solution(t_smooth, r_treat, K_treat, c_fit)
 
@@ -66,12 +66,10 @@ plt.grid(True)
 plt.show()
 
 
-print("Untreated Model Parameters:")
-print("r =", r_fit)
-print("K =", K_fit)
+print("True parameters:")
+print("r =", r_true, "K =", K_true, "c =", c_true)
 
-print("\nTreatment Model Parameters:")
-print("r =", r_treat)
-print("K =", K_treat)
-print("c =", c_fit)
+print("\nEstimated parameters:")
+print("Untreated → r =", r_fit, "K =", K_fit)
+print("Treated → r =", r_treat, "K =", K_treat, "c =", c_fit)
 
